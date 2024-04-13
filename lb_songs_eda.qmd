@@ -1,0 +1,99 @@
+---
+title: "Lifeblood Take-home Assignment"
+format: html
+editor: visual
+---
+
+#### 0.1 Import data 
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Read in data set 
+songs_df <- read_csv("data/lifeblood_interview_dataset.csv")
+
+# Check information of data frame 
+print(head(songs_df))
+print(str(songs_df))
+```
+
+#### 1.1 Assess overall data hygiene: Check for Duplicates 
+
+- From inspection there appears to be 205 duplicates of songs 
+  
+```{r}
+# Assert if unique count of songs matches number of rows 
+print(nrow(songs_df) == length(unique(songs_df)))
+print(length(unique(songs_df$songs_id)))
+
+# Duplicate songs exist, return the rows with the duplicate songs 
+duplicate_songs_df  <- songs_df %>% 
+  filter(duplicated(song_id) | duplicated(song_id, fromLast= TRUE ))
+
+# Verify these songs are exact duplicates by checking other columns match the duplicates
+duplicate_songs_df_verified <- duplicate_songs_df %>% 
+  group_by(song_id) %>% 
+  #If all columns have a distinct count of 1 for a particular song_id, it indicates that the duplicate songs are exact duplicates across all columns.
+  summarize(across(everything(), ~n_distinct(.)))
+```
+
+#### 1.2 Assess overall data hygiene: Check for missing values
+
+There are 2329 missing values for energy in column. We make the assumption that 
+these random values are completely missing at random (MCAR)
+
+For future exploration, employ statistical test or ask data owner whether the missing values are missing at random (MAR), missing completely at random (MCAR), or missing not at random (MNAR). 
+
+```{r}
+# Count the number of NULL and NA values column wise 
+missing_values_df <- songs_df %>% 
+  summarise_all(~sum(is.na(.)))
+```
+#### 1.3 Assess overall data hygiene: Check for outliers
+
+We first remove duplicate values and remove missing values given our MCAR assumption. Then plot the distributions of each feature. 
+
+From visually inspecting the distributions, there appears to be negative values in the length column which is physically impossible. Assuming this a data entry error, we remove these values moving forward. Again, with more time we can impute these incorrect values or ask the data owner for clarification. 
+
+```{r}
+# Remove duplicates and missing values
+songs_df_cleaned <- songs_df %>%
+  distinct() %>%  
+  filter(!is.na(energy))
+
+# Using ggplot, we plot the smoothed distribution of continuous variables  
+variables <- setdiff(names(songs_df_cleaned) ,c("band_id", "genre", "song_id", "date"))
+
+for (vars in variables) {
+  plot <- ggplot(songs_df_cleaned, aes(x = !!sym(vars))) +
+    geom_density(fill = "blue", alpha = 0.5) +
+    ggtitle(paste("Density plot of", vars)) +
+    theme_minimal()
+
+  print(plot)
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
