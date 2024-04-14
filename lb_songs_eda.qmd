@@ -4,24 +4,31 @@ format: html
 editor: visual
 ---
 
-#### 0.1 Import data 
+#### 0.1 Import data
 
 ```{r}
-library(dplyr)
-library(ggplot2)
+# Install pacman if not already installed
+if (!require("pacman")) install.packages("pacman")
 
-# Read in data set 
-songs_df <- read_csv("data/lifeblood_interview_dataset.csv")
+# Clear worksapce 
+rm(list=ls())
+
+# Load the required packages using pacman
+pacman::p_load(dplyr, ggplot2, psych, ggcorrplot, highcharter, lubridate, plotly,ggpubr)
+
+# Read in data set and parse date column as date objects 
+songs_df <- read.csv("data/lifeblood_interview_dataset.csv") %>%  
+  mutate(date = as.Date(date))
 
 # Check information of data frame 
 print(head(songs_df))
 print(str(songs_df))
 ```
 
-#### 1.1 Assess overall data hygiene: Check for Duplicates 
+#### 1.1 Data preprocessing: Check for Duplicates
 
-- From inspection there appears to be 205 duplicates of songs 
-  
+-   From inspection there appears to be 205 duplicates of songs
+
 ```{r}
 # Assert if unique count of songs matches number of rows 
 print(nrow(songs_df) == length(unique(songs_df)))
@@ -38,62 +45,281 @@ duplicate_songs_df_verified <- duplicate_songs_df %>%
   summarize(across(everything(), ~n_distinct(.)))
 ```
 
-#### 1.2 Assess overall data hygiene: Check for missing values
+#### 1.1 Data preprocessing: Check for missing values
 
-There are 2329 missing values for energy in column. We make the assumption that 
-these random values are completely missing at random (MCAR)
+There are 2329 missing values for energy in column. We make the assumption that these random values are completely missing at random (MCAR)
 
-For future exploration, employ statistical test or ask data owner whether the missing values are missing at random (MAR), missing completely at random (MCAR), or missing not at random (MNAR). 
+For future exploration, employ statistical test or ask data owner whether the missing values are missing at random (MAR), missing completely at random (MCAR), or missing not at random (MNAR).
 
 ```{r}
 # Count the number of NULL and NA values column wise 
 missing_values_df <- songs_df %>% 
   summarise_all(~sum(is.na(.)))
 ```
-#### 1.3 Assess overall data hygiene: Check for outliers
 
-We first remove duplicate values and remove missing values given our MCAR assumption. Then plot the distributions of each feature. 
+#### 1.1 Data preprocessinge: Check for outliers
 
-From visually inspecting the distributions, there appears to be negative values in the length column which is physically impossible. Assuming this a data entry error, we remove these values moving forward. Again, with more time we can impute these incorrect values or ask the data owner for clarification. 
+We first remove duplicate values and remove missing values given our MCAR assumption. Then plot the distributions of each feature.
+
+From visually inspecting the distributions, there appears to be negative observations in the 'length' variable which is physically impossible. Assuming this a data error, we remove these values moving forward. Again, with more time we can impute these incorrect values or ask the data owner for clarification.
 
 ```{r}
 # Remove duplicates and missing values
-songs_df_cleaned <- songs_df %>%
+cleaned_songs_df <- songs_df %>%
   distinct() %>%  
   filter(!is.na(energy))
 
-# Using ggplot, we plot the smoothed distribution of continuous variables  
-variables <- setdiff(names(songs_df_cleaned) ,c("band_id", "genre", "song_id", "date"))
+# Plot the smoothed distribution of continuous variables  
+variables <- setdiff(names(cleaned_songs_df) ,c("band_id", "genre", "song_id", "date"))
 
 for (vars in variables) {
-  plot <- ggplot(songs_df_cleaned, aes(x = !!sym(vars))) +
+  plot <- ggplot(cleaned_songs_df, aes(x = !!sym(vars))) +
     geom_density(fill = "blue", alpha = 0.5) +
     ggtitle(paste("Density plot of", vars)) +
     theme_minimal()
+  print(plot)
+}
 
+# Filter length rows to contain values greater than 0 
+cleaned_songs_df <-cleaned_songs_df %>% 
+  filter(length > 0)
+
+```
+
+#### 2.0 Exploratory data analysis: Calculate summary statistics
+
+```{r}
+# Calculate summary statistics for continuous variable and return data frame 
+describe(cleaned_songs_df %>% select(all_of(variables))) %>%  
+  select(mean, median, min, max, range, sd)
+```
+
+#### 2.1 Exploratory data analysis: Investigate temporal patterns across total songs I
+
+A key observation there is a overall downward trend in the total amount of copies sold. This suggests `copies_sold` reflect the units sold since launch date of song. From here we assume the `copies_sold` variable is a cumulative sum of the copies sold since the launch date of the song.
+
+```{r}
+# # Plot time series of total songs sold at the weekly frequency
+# songs_weekly_series_df <-cleaned_songs_df %>%
+#   mutate(year_week = format(date, "%Y-%W")) %>%
+#   group_by(year_week) %>%
+#   summarize(total_songs_sold = sum(copies_sold)) %>% 
+#   arrange(year_week)
+# 
+# hchart(songs_weekly_series_df, "line", hcaes(x = year_week, y = total_songs_sold)) %>%
+#   hc_title(text = "Weekly Total Songs Sold Over Time") %>%
+#   hc_xAxis(title = list(text = "Year-Week")) %>%
+#   hc_yAxis(title = list(text = "Total Songs Sold")) %>%
+#   hc_tooltip(valueDecimals = 0)
+
+# # Plot time series of total songs sold at the monthly frequency
+# songs_monthly_series_df <-cleaned_songs_df %>%
+#   mutate(year_month = format(date, "%m-%Y")) %>%
+#   group_by(year_month) %>%
+#   summarize(total_songs_sold = sum(copies_sold))
+# 
+# hchart(songs_monthly_series_df, "line", hcaes(x = year_month, y = total_songs_sold)) %>%
+#   hc_title(text = "Monthly Total Songs Sold Over Time") %>%
+#   hc_xAxis(title = list(text = "Year-Month")) %>%
+#   hc_yAxis(title = list(text = "Total Songs Sold")) %>%
+#   hc_tooltip(valueDecimals = 0)
+
+# Plot time series of total songs sold at the quarterly frequency
+songs_quarterly_series_df <-cleaned_songs_df %>%
+  mutate(year_quarter = paste0(year(date), "-Q", quarter(date))) %>%
+  group_by(year_quarter) %>%
+  summarize(total_songs_sold = sum(copies_sold))
+
+hchart(songs_quarterly_series_df, "line", hcaes(x = year_quarter, y = total_songs_sold)) %>%
+  hc_title(text = "Quarterly Total Songs Sold Over Time") %>%
+  hc_xAxis(title = list(text = "Year-Quarter")) %>%
+  hc_yAxis(title = list(text = "Total Songs Sold")) %>%
+  hc_tooltip(valueDecimals = 0)
+
+# Plot time series of total songs sold at the yearly frequency
+songs_yearly_series_df <-cleaned_songs_df %>%
+  mutate(year = format(date, "%Y")) %>%
+  group_by(year) %>%
+  summarize(total_songs_sold = sum(copies_sold))
+
+hchart(songs_yearly_series_df, "line", hcaes(x = year, y = total_songs_sold)) %>%
+  hc_title(text = "Yearly Total Songs Sold Over Time") %>%
+  hc_xAxis(title = list(text = "Year")) %>%
+  hc_yAxis(title = list(text = "Total Songs Sold")) %>%
+  hc_tooltip(valueDecimals = 0)
+
+# Plot time series of total songs sold by genre at the quarterly frequency
+songs_genre_quarterly_series_df <- cleaned_songs_df %>%
+  mutate(year_quarter = paste0(year(date), "-Q", quarter(date))) %>%
+  group_by(year_quarter, genre) %>%
+  summarize(total_songs_sold = sum(copies_sold))
+
+# Create the highcharter plot object
+hchart(songs_genre_quarterly_series_df, "line", hcaes(x = year_quarter, y = total_songs_sold, group = genre)) %>%
+  hc_title(text = "Quarterly Total Songs Sold Over Time by Genre") %>%
+  hc_xAxis(title = list(text = "Year-Quarter")) %>%
+  hc_yAxis(title = list(text = "Total Songs Sold")) %>%
+  hc_tooltip(valueDecimals = 0) %>%
+  hc_legend(title = list(text = "Genre"))
+```
+
+
+#### 2.2 Investigate temporal patterns - Plot Aggregate average loudness and sound length across time
+
+```{r}
+# Plot time series at the weekly frequency
+songs_weekly_series_df <-cleaned_songs_df %>%
+  mutate(date = as.Date(date)) %>%
+  #mutate(year_week = format(date, "%Y-%W")) %>%
+  #group_by(year_week) %>%
+  mutate(year_quarter = paste0(year(date), "-Q", quarter(date))) %>%
+  group_by(year_quarter) %>%
+  summarize(mean_loudness = mean(loudness),
+            mean_energy = mean(energy),
+            mean_length = mean(length)) %>%
+  arrange(year_quarter)
+
+# Plot mean_loudness, mean_energy and mean_length over time
+hchart(songs_weekly_series_df, "line", hcaes(x = year_quarter, y = mean_loudness)) %>%
+  hc_add_series(songs_weekly_series_df, "line", hcaes(x = year_quarter, y = mean_energy)) %>%
+  #hc_add_series(songs_weekly_series_df, "line", hcaes(x = year_quarter, y = mean_length)) %>%
+  hc_title(text = "Weekly Mean Loudness, Energy and Length Over Time") %>%
+  hc_xAxis(title = list(text = "Year-Week")) %>%
+  hc_yAxis(title = list(text = "Mean Loudness, Energy, Length")) %>%
+  hc_tooltip(valueDecimals = 0)
+```
+
+#### 2.3 EDA: Perform different counts on the data relating to target 
+
+We perform the following counts:
+
+- Number of songs that sold above 2 million and the count to see if there is class imbalance. 
+ Findings:  As the proportion of songs sold above 2 million only covers 6% of the data, recommend using regression approach. 
+- Total count of songs released in each year in aggregate and by genre. 
+ Findings:  Folktronica features releases the most songs by year consistent with the amount of copies sold 
+- Total count of songs released by band in across all time to see if there are any data anomalies 
+- Total count of unique bands to see if it's feasible to train a model at the band level
+  Findings: There are 1390 unique bands and 7970 observations, where most bands have released less than 5 songs. Insufficient degrees of freedom to estimate a statisical model, pivot to genre level. 
+
+```{r}
+# Calculate the proportion of song that  sold above 2 million 
+proportion_songs_above_2m <-cleaned_songs_df %>% 
+  summarize(proportion_songs_above_2m = sum(copies_sold >= 2) / nrow(.))
+
+# Calculate total count of songs released in each year in aggregate by genre 
+songs_yearly_count_df <-cleaned_songs_df %>% 
+  mutate(year = year(date)) %>%
+  group_by(year, genre) %>%
+  summarize(total_songs_released = n())
+
+# Create a stacked bar chart across time of the count songs for each genre 
+hchart(songs_yearly_count_df, "column", hcaes(x = year, y = total_songs_released, group = genre)) %>%
+  hc_title(text = "Yearly Total Songs Released by Genre") %>%
+  hc_xAxis(title = list(text = "Year")) %>%
+  hc_yAxis(title = list(text = "Total Songs Released")) %>%
+  hc_tooltip(valueDecimals = 0)
+
+# Create a stacked bar chart across time of the count songs for each genre
+hchart(songs_yearly_count_df, "column", hcaes(x = year, y = total_songs_released, group = genre), stacking = "normal") %>%
+  hc_title(text = "Yearly Total Songs Released by Genre") %>%
+  hc_xAxis(title = list(text = "Year")) %>%
+  hc_yAxis(title = list(text = "Total Songs Released")) %>%
+  hc_tooltip(valueDecimals = 0)
+
+# Calculate count of songs released by band in across all time 
+songs_band_count_df <- cleaned_songs_df %>%  
+  group_by(band_id) %>%
+  summarise(total_songs_released = n()) %>%  
+  arrange(desc(total_songs_released))
+
+# Plot distribution of frequency on number of songs released at band level 
+ggplot(songs_band_count_df, aes(x = total_songs_released)) +
+  geom_histogram(binwidth = 1, fill = "blue", alpha = 0.5) +
+  ggtitle("Distribution of Frequency of Number of Songs Released by Band") +
+  theme_minimal()
+
+# Caclulate total count of unique bands
+unique_bands_count <- cleaned_songs_df %>% 
+  summarize(unique_bands = n_distinct(band_id))
+```
+
+#### 2.4 EDA: Plot distributions of each features across year 
+
+Investigate if there are any temporal patterns/anomalies at the yearly levels.
+Findings: The distributions of the continuous features are relatively stable across the years.
+
+```{r}
+# Plot the smoothed distributions of the continuous features for each year 
+for (vars in variables) {
+  plot <- ggplot(cleaned_songs_df, aes(x = !!sym(vars), fill = as.factor(year(date)))) +
+    geom_density(alpha = 0.5) +
+    ggtitle(paste("Density plot of", vars)) +
+    theme_minimal()
+  print(plot)
+}
+
+# Plot the violin plots of each continuous feature for each year 
+for (vars in variables) {
+  plot <- plot_ly(cleaned_songs_df, x = ~as.factor(year(date)), y = ~get(vars), type = "violin",
+                  box = list(visible = TRUE),
+                  meanline = list(visible = TRUE),
+                  hoverinfo = "text" ) %>%
+    layout(title = paste("Violin Plot of", vars),
+           xaxis = list(title = "Year"),
+           yaxis = list(title = vars),
+           showlegend = FALSE)
+  print(plot)
+}
+```
+
+#### 2.5 EDA: Plot correlation and interaction of features with target variable
+
+Investigate the correlation amongst features and target to check for possibility of multicollinearity.
+
+Length seems to have low correlation with the target variable, copies_sold and other features 
+
+```{r}
+
+library(ggExtra)
+ # Calculate correlation matrix for continuous variables
+correlation_matrix <- cor(cleaned_songs_df %>% select(all_of(variables)), use = "pairwise.complete.obs")
+
+# Plot correlation matrix
+ggcorrplot(correlation_matrix, hc.order = TRUE, type = "upper",lab = TRUE)
+
+# Plot scatterplot and marginal distribtuion of target against continuous features using ggpubr 
+for (vars in variables) {
+  plot <- ggplot(cleaned_songs_df, aes(x = !!sym(vars), y = copies_sold, color = factor(genre))) +
+    geom_point(alpha = 0.6) +
+    scale_color_discrete(name = "Genre") +
+    theme_minimal() +
+    labs(x = vars, y = "Copies Sold", title = paste("Scatter Plot of", vars, "vs. Copies Sold"))
+  
+  plot_with_margin <- ggMarginal(plot, type = "density", fill = "lightblue", color = "lightblue")
+  
+  print(plot_with_margin)
+}
+
+for (vars in variables) {
+  plot <- ggscatterhist(
+    data = cleaned_songs_df,
+    x = vars,
+    y = "copies_sold",
+    color = "genre",
+    size = 3,
+    alpha = 0.6,
+    # palette = c("#00AFBB", "#E7B800", "#FC4E07", "#007FFF", "#8B008B", "#228B22", "#FF69B4", "#CD5C5C", "#FFD700", "#6495ED"),
+    margin.params = list(fill = "genre", color = "black", size = 0.2),
+    ggtheme = theme_minimal(),
+    xlab = vars,
+    ylab = "Copies Sold",
+    title = paste("Scatter Plot of", vars, "vs. Copies Sold")
+  )
+  
   print(plot)
 }
 
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
