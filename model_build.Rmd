@@ -1,0 +1,132 @@
+---
+title: "LB_songs_models"
+output: html_document
+date: "2024-04-15"
+---
+
+#### 1. Feature engineer and create data preprocessing 
+
+```{r}
+pacman::p_load(tidyverse,tidymodels)
+
+# Clear workspace 
+rm(list=ls())
+
+# Read in data set and parse date column as date objects 
+  df <- read.csv("data/lifeblood_interview_dataset.csv") %>%  
+  mutate(date = as.Date(date)) %>%  
+  distinct() %>%  
+  filter(!is.na(energy)) %>%
+  filter(length > 0) %>% 
+  mutate(log_copies_sold = log(copies_sold))
+  
+# Create one hot encoding for the genre column 
+  input_df <- df %>%  
+    mutate(value =1 ) %>% 
+    pivot_wider(names_from = genre, values_from =value, values_fill = 0)
+
+# Create date_since_launch feature 
+  record_date <- as.Date('2023-01-01')
+  
+# Create since launch date column   
+  input_df_final <- input_df %>%
+  mutate(date = as.Date(date),
+         date_since_launch = as.integer(difftime(record_date, date, units = "days"))) %>% 
+    select(-c(date,song_id, band_id))
+  
+```
+
+#### 2. Partition data into 10 folds to train and evaluate models 
+
+```{r}
+# Create 10 folds of the data
+set.seed(123)  # Set seed for reproducibility
+input_folds <- vfold_cv(input_df_final, v = 10)
+
+# Create model specifications
+glm_spec <- linear_reg() %>%
+  set_engine("glm")
+
+rf_spec <- rand_forest() %>%
+  set_engine("ranger") %>%
+  set_mode("regression")
+  
+# Create workflow for linear regression model
+glm_wf <- workflow() %>%
+  add_model(glm_spec) %>%
+  add_formula(copies_sold ~ .)
+
+# Fit the linear regression model with cross-validation
+glm_rs <- glm_wf %>%
+  fit_resamples(resamples = input_folds,
+                control = control_resamples(save_pred = TRUE, verbose = TRUE))
+
+# Create workflow for random forest model
+rf_wf <- workflow() %>%
+  add_model(rf_spec) %>%
+  add_formula(copies_sold ~ .)
+
+# Fit the random forest model with cross-validation
+rf_rs <- rf_wf %>%
+  fit_resamples(resamples = input_folds,
+                control = control_resamples(save_pred = TRUE, verbose = TRUE))
+
+# Collect metrics for linear regression model
+glm_metrics <- glm_rs %>%
+  collect_metrics()
+
+# Collect metrics for random forest model
+rf_metrics <- rf_rs %>%
+  collect_metrics()
+
+# Compare the performance of linear regression and random forest models
+comparison_metrics_target <- bind_rows(
+  glm_metrics %>% mutate(model = "Linear Regression"),
+  rf_metrics %>% mutate(model = "Random Forest")
+)
+
+# Print the comparison metrics
+print(comparison_metrics_target)
+```
+
+
+#### 3. Create a linear regression and random forest model with log target
+
+```{r}
+# Create workflow for linear regression model
+glm_wf <- workflow() %>%
+  add_model(glm_spec) %>%
+  add_formula(log(copies_sold) ~ .)
+
+# Fit the linear regression model with cross-validation
+glm_rs <- glm_wf %>%
+  fit_resamples(resamples = input_folds,
+                control = control_resamples(save_pred = TRUE, verbose = TRUE))
+
+# Create workflow for random forest model
+rf_wf <- workflow() %>%
+  add_model(rf_spec) %>%
+  add_formula(log(copies_sold) ~ .)
+
+# Fit the random forest model with cross-validation
+rf_rs <- rf_wf %>%
+  fit_resamples(resamples = input_folds,
+                control = control_resamples(save_pred = TRUE, verbose = TRUE))
+
+# Collect metrics for linear regression model
+glm_metrics <- glm_rs %>%
+  collect_metrics()
+
+# Collect metrics for random forest model
+rf_metrics <- rf_rs %>%
+  collect_metrics()
+
+# Compare the performance of linear regression and random forest models
+comparison_metrics_target_log <- bind_rows(
+  glm_metrics %>% mutate(model = "Linear Regression"),
+  rf_metrics %>% mutate(model = "Random Forest")
+)
+
+# Print the comparison metrics
+print(comparison_metrics_target_log)
+```

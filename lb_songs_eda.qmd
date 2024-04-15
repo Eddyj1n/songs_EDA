@@ -35,6 +35,8 @@ mODELS FRAMEWORK:
 
 dATA aSSUMPTIONS:
 
+- Consider log transforming the target if we using statistical model, for model A random forest, probably won't make too much of difference as it's a tree based model. 
+
 #### 1.1 Data preprocessing: Check for Duplicates
 
 -   From inspection there appears to be 205 duplicates of songs
@@ -459,16 +461,13 @@ interaction.plot(x.factor = interaction_df$loudness_bin,
 # Create the interaction plot for energy and length 
 interaction.plot(x.factor = interaction_df$energy_bin,
                  trace.factor = as.factor(interaction_df$length_bin),
-                 response = interaction_df$copies_sold,
+                response = interaction_df$copies_sold,
                  fun = mean,
-                 type = "o",
-                 col = c("blue", "red"),
-                 pch = c(19, 17),
-                 lty = 1,
-                 xlab = "Energy",
+                 type = "b",
+                 xlab = "Loudness",
+                 col = c("blue", "red", "green", "purple"),
                  ylab = "Copies_sold",
                  legend = TRUE,
                  trace.label = "Length",
                  main = "Interaction Plot")
-
 ```
