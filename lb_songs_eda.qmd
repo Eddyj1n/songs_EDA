@@ -27,6 +27,14 @@ print(head(songs_df))
 print(str(songs_df))
 ```
 
+EXECUTIVE SUMARURY:
+
+The below EDA motivates the following
+
+mODELS FRAMEWORK:
+
+dATA aSSUMPTIONS:
+
 #### 1.1 Data preprocessing: Check for Duplicates
 
 -   From inspection there appears to be 205 duplicates of songs
@@ -72,8 +80,8 @@ cleaned_songs_df <- songs_df %>%
   filter(!is.na(energy))
 
 # Plot the smoothed distribution of continuous variables  
-variables <- setdiff(names(cleaned_songs_df) ,c("band_id", "genre", "song_id", "date"))
-
+variables <- c("copies_sold", "length", "energy", "loudness")
+              
 for (vars in variables) {
   plot <- ggplot(cleaned_songs_df, aes(x = !!sym(vars))) +
     geom_density(fill = "blue", alpha = 0.5) +
@@ -361,7 +369,7 @@ aggregated_variables <-names(features_weekly_df)[2:5]
   
 ```
 
-#### 2.5 EDA: Plot correlation and interaction of features with target variable
+#### 3.1 EDA with new Features: Plot correlation and interaction of features with target variable
 
 **Check:** Investigate the correlation amongst features to understand feature importance.
 
@@ -375,6 +383,8 @@ aggregated_variables <-names(features_weekly_df)[2:5]
 
 -   In particular length seems to have low correlation with the target variable, copies_sold and other features
 
+-   There appears to be a negative relationship between copies sold and length and loudness at the song level and positive relationship at with energy.
+
 ```{r}
 # Calculate correlation matrix for continuous variables at different levels
 # Correlation matrix at the song level 
@@ -387,33 +397,78 @@ correlation_matrix_weekly <- cor(features_weekly_df %>%  select(all_of(aggregate
 ggcorrplot(correlation_matrix_song_level, hc.order = TRUE, type = "upper",lab = TRUE)
 ggcorrplot(correlation_matrix_weekly, hc.order = TRUE, type = "upper",lab = TRUE)
 
-# Plot a scatter plot of energy vs. copies sold
-ggplot(data = cleaned_songs_df %>% sample_n(1000),
-                       aes(x = energy, y = copies_sold, color = genre, size = days_since_launch)) +
-  geom_point(alpha = 0.7) +
-  geom_smooth(method = "loess", formula = y ~ x, color = "black", size = 1) +
-  scale_color_viridis(discrete = TRUE) +
-  labs(x = "energy", y = "Copies Sold", title = "Scatter Plot of Energy vs. Copies Sold") +
-  theme_minimal() 
+# Define the variables and their corresponding labels
+plot_vars <- c("energy", "length", "loudness")
+labels <- c("Energy", "Length", "Loudness")
 
+# Loop through the variables and create the scatter plots
+for (i in seq_along(plot_vars)) {
+  var <- plot_vars[i]
+  label <- labels[i]
+  
+  plot <- ggplot(data = cleaned_songs_df %>%  sample_n(2000),
+                 aes(x = !!sym(var), y = copies_sold, color = genre, size = days_since_launch)) +
+    geom_point(alpha = 0.7) +
+    geom_smooth(method = "loess", formula = y ~ x, color = "black", size = 1) +
+    scale_color_viridis(discrete = TRUE) +
+    labs(x = label, y = "Copies Sold", title = paste("Scatter Plot of", label, "vs. Copies Sold")) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      legend.position = "bottom",
+      legend.box = "vertical",
+      legend.margin = margin(0, 0, 0, 0),
+      legend.box.margin = margin(0, 0, 0, 0),
+      legend.text = element_text(size = 8),
+      legend.key.size = unit(0.5, "cm"),
+      plot.margin = unit(c(1, 1, 1.5, 1), "cm")
+    ) +
+    guides(color = guide_legend(nrow = 2, byrow = TRUE, override.aes = list(size = 3)))
+  
+  print(plot)
+}
 
-# Plot a scatter plot of length vs. copies sold
-ggplot(data = cleaned_songs_df %>% sample_n(1000),
-                       aes(x = length, y = copies_sold, color = genre, size = days_since_launch)) +
-  geom_point(alpha = 0.7) +
-  geom_smooth(method = "lm", formula = y ~ x, color = "black", size = 1) +
-  scale_color_viridis(discrete = TRUE) +
-  labs(x = "length", y = "Copies Sold", title = "Scatter Plot of Energy vs. Copies Sold") +
-  theme_minimal() 
+```
 
-# Plot a scatter plot of loudness vs. copies sold
-ggplot(data = cleaned_songs_df %>% sample_n(1000),
-                       aes(x = loudness, y = copies_sold, color = genre, size = days_since_launch)) +
-  geom_point(alpha = 0.7) +
-  geom_smooth(method = "lm", formula = y ~ x, color = "black", size = 1) +
-  scale_color_viridis(discrete = TRUE) +
-  labs(x = "loudness", y = "Copies Sold", title = "Scatter Plot of Energy vs. Copies Sold") +
-  theme_minimal() 
+#### 3.2 Investigate to existence of interaction between features and target variable
 
+**Check:** Whether there is an interaction between `energy` and `loudness` with `length` to `copies_sold`. Rationale: A song that is high energy/loud that is long may cause fatigue in listeners reducing copies sold.
+
+**Findings:**
+
+```{r}
+# Creating quartile bins for energy, loudness and length
+interaction_df <- cleaned_songs_df %>%
+  mutate(energy_bin = ntile(energy, 4),
+         loudness_bin = ntile(loudness, 4),
+         length_bin = ntile(length, 4))
+
+# Create the interaction plot for loudness and energy
+interaction.plot(x.factor = interaction_df$loudness_bin,
+                 trace.factor = interaction_df$length_bin,
+                 response = interaction_df$copies_sold,
+                 fun = mean,
+                 type = "b",
+                 xlab = "Loudness",
+                  col = c("blue", "red", "green", "purple"),
+                 ylab = "Copies_sold",
+                 legend = TRUE,
+                 trace.label = "Length",
+                 main = "Interaction Plot")
+
+# Create the interaction plot for energy and length 
+interaction.plot(x.factor = interaction_df$energy_bin,
+                 trace.factor = as.factor(interaction_df$length_bin),
+                 response = interaction_df$copies_sold,
+                 fun = mean,
+                 type = "o",
+                 col = c("blue", "red"),
+                 pch = c(19, 17),
+                 lty = 1,
+                 xlab = "Energy",
+                 ylab = "Copies_sold",
+                 legend = TRUE,
+                 trace.label = "Length",
+                 main = "Interaction Plot")
 
 ```
