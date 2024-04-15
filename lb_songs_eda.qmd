@@ -1,22 +1,49 @@
 ---
 title: "Lifeblood Take-home Assignment"
+author: Eddy Jin 
 format: html
 editor: visual
 ---
 
-#### 0.1 Import data and load required packages
+#### Executive - Overall Approach
+
+The exploratory data analysis (EDA) is conducted to motivate the model building process. Based on the EDA, the two models are proposed to balance between the complexity to solve the problem and the ease of bringing the model to production.
+
+For **Model A**: - Assuming we are to predict the whether a *new* song will sell more than two million copies we run a random forest regression where `copies_sold` is the target and the features are :
+
+-   `loudness`, `energy`, `length`
+
+-   one-hot encoding of `genre`
+
+-   `days_since_launch_date` (new feature)
+
+For **Model B** - Assuming the model is to evaluate the popularity of a genre over sequential time periods *historically* and **not** used to forecast future popularity (which will require a time-series approach). Based off the EDA we can use multivariate regression specified below.
+
+$$
+y\_{it} = \beta\_0 + \beta\_1 X\_{it1} + \beta\_2 X\_{it2} + \dots + \beta\_k X\_{itk} + \alpha\_g + t + \epsilon\_{it}
+$$ {#eq-1}
+
+Where $y\_{it}$ is the copies sold for song $i$ in genre $g$ at time $t$, $X\_{it}$ are the features, $\alpha\_g$ is the genre fixed effect, $\Y_d$ is the time fixed effect for each year, and $\epsilon\_{it}$ is the error term.
+
+Consideration: Using song-level data at the level may result in too much noise, can aggregate at weekly level to run panel model. A mixed-effects model can be explored to capture the hierarchical structure of data, however EDA suggests there may insufficient observations at the band level.
+
+**Data Assumptions**:
+
+-   `copies_sold` is the amount sold since release date recorded at the end of the data set.
+-   All missing values and non-nonsensical values are assumed to be missing completely at random (MCAR).
+
+#### 1. Import data and load required packages
 
 ```{r}
+#| echo: false
 # Install pacman if not already installed
 if (!require("pacman")) install.packages("pacman")
 
-# Clear worksapce 
+# Clear workspace 
 rm(list=ls())
 
 # Load the required packages using pacman
-pacman::p_load(tidyverse,
-               #plot packages
-               ggplot2, psych, ggcorrplot, highcharter,plotly,ggpubr,viridis)
+pacman::p_load(tidyverse,ggplot2, psych, ggcorrplot, highcharter,plotly,viridis)
 
 # Read in data set and parse date column as date objects 
 songs_df <- read.csv("data/lifeblood_interview_dataset.csv") %>%  
@@ -25,26 +52,24 @@ songs_df <- read.csv("data/lifeblood_interview_dataset.csv") %>%
 # Check information of data frame 
 print(head(songs_df))
 print(str(songs_df))
+
 ```
 
-EXECUTIVE SUMARURY:
+#### 2. Data pre-processing:
 
-The below EDA motivates the following
+In this section we assess the hygiene of the data but checking the following:
 
-mODELS FRAMEWORK:
+-   Duplicate rows
 
-dATA aSSUMPTIONS:
+-   Missing values
 
-- Consider log transforming the target if we using statistical model, for model A random forest, probably won't make too much of difference as it's a tree based model. 
+-   Outliers or nonsensical data points
 
-#### 1.1 Data preprocessing: Check for Duplicates
-
--   From inspection there appears to be 205 duplicates of songs
+##### 2.1: Check for duplicate rows
 
 ```{r}
 # Assert if unique count of songs matches number of rows 
 print(nrow(songs_df) == length(unique(songs_df)))
-print(length(unique(songs_df$songs_id)))
 
 # Duplicate songs exist, return the rows with the duplicate songs 
 duplicate_songs_df  <- songs_df %>% 
@@ -53,27 +78,22 @@ duplicate_songs_df  <- songs_df %>%
 # Verify these songs are exact duplicates by checking other columns match the duplicates
 duplicate_songs_df_verified <- duplicate_songs_df %>% 
   group_by(song_id) %>% 
-  #If all columns have a distinct count of 1 for a particular song_id, it indicates that the duplicate songs are exact duplicates across all columns.
+  
+#If all columns have a distinct count of 1 for a particular song_id, it indicates that the duplicate songs are exact duplicates across all columns.
   summarize(across(everything(), ~n_distinct(.)))
 ```
 
-#### 1.1 Data preprocessing: Check for missing values
-
-There are 2329 missing values for energy in column. We make the assumption that these random values are completely missing at random (MCAR)
-
-For future exploration, employ statistical test or ask data owner whether the missing values are missing at random (MAR), missing completely at random (MCAR), or missing not at random (MNAR).
+##### 2.2: Check for missing values
 
 ```{r}
 # Count the number of NULL and NA values column wise 
 missing_values_df <- songs_df %>% 
   summarise_all(~sum(is.na(.)))
+
+missing_values_df
 ```
 
-#### 1.1 Data preprocessinge: Check for outliers
-
-We first remove duplicate values and remove missing values given our MCAR assumption. Then plot the distributions of each feature.
-
-From visually inspecting the distributions, there appears to be negative observations in the 'length' variable which is physically impossible. Assuming this a data error, we remove these values moving forward. Again, with more time we can impute these incorrect values or ask the data owner for clarification.
+##### 2.3: Check for outliers
 
 ```{r}
 # Remove duplicates and missing values
@@ -98,7 +118,24 @@ cleaned_songs_df <-cleaned_songs_df %>%
 
 ```
 
-#### 2.0 Exploratory data analysis: Calculate summary statistics
+**Findings:**
+
+-   There are 205 duplicates of songs
+
+-   The energy column has 2329 missing values, assumed to be missing completely at random (MCAR).
+
+    Future exploration: Use statistical tests or consult the data owner to determine if the missing values are missing at random (MAR), MCAR, or missing not at random (MNAR).
+
+-   We first remove duplicate values and missing values given our MCAR assumption. Then plot the distributions of each feature.
+
+    -   Visual inspection of the distributions reveals negative observations in the 'length' variable, which is physically impossible. Assuming this is a data error, these values are removed for further analysis.
+    -   Future improvement: Impute incorrect values or seek clarification from the data owner.
+
+### 3.0 Exploratory data analysis:
+
+#### 3.1 Calculate summary statistics
+
+We calculate the summary statistics for the continuous variables to familirise with the distribution of the data.
 
 ```{r}
 # Calculate summary statistics for continuous variable and return data frame 
@@ -106,35 +143,123 @@ describe(cleaned_songs_df %>% select(all_of(variables))) %>%
   select(mean, median, min, max, range, sd)
 ```
 
-#### 2.1 Exploratory data analysis: Investigate temporal patterns across total songs at quarterly and yearly frequency to motivate what temporal features to include
+#### 3.2 Perform different counts on the data for modelling considerations
 
-A key observation there is a overall downward trend in the total amount of copies sold. This suggests `copies_sold` reflect the units sold since launch date of song. From here we assume the `copies_sold` variable is a cumulative sum of the copies sold since the launch date of the song.
+We perform the following analyses:
+
+1.  **Check**: Count the number of songs that sold above 2 million copies to assess potential class imbalance.
+
+    -   **Findings**: Only \~6% of the songs sold above 2 million copies, suggesting that a regression approach may be more appropriate than a classification approach due to class imbalance.
+
+2.  **Check**: Count the total number of songs released each year, both in aggregate and by genre.
+
+    -   **Findings**:
+
+        -   The aggregate number of songs released per year is generally decreasing.
+
+        -   The Folktronica genre consistently releases the most songs each year
+
+3.  **Check**: Count the total number of songs released by each band across all time to identify any data anomalies and assess the feasibility of training a model at the band level.
+
+    -   **Findings**: There are 1,390 unique bands and 7,970 observations, with most bands having released fewer than 5 songs. Due to low degrees of freedom can be difficult to estimate the effect of bands.
+
+4.  **Check**: Each band only produces the same genre of songs to check hierarchical structure of data
+
+    -   **Findings**: All bands in the data set produce the same genre of songs.
 
 ```{r}
-# Plot time series of total songs sold at the quarterly frequency
-songs_quarterly_series_df <-cleaned_songs_df %>%
+# Calculate the proportion of song that  sold above 2 million 
+proportion_songs_above_2m <-cleaned_songs_df %>% 
+  summarize(proportion_songs_above_2m = sum(copies_sold >= 2) / nrow(.))
+
+# Calculate total count of songs released in each year in aggregate by genre 
+songs_yearly_count_df <-cleaned_songs_df %>% 
+  mutate(year = year(date)) %>%
+  group_by(year, genre) %>%
+  summarize(total_songs_released = n())
+
+# Create a stacked bar chart across time of the count songs for each genre 
+hchart(songs_yearly_count_df, "column", hcaes(x = year, y = total_songs_released, group = genre)) %>%
+  hc_title(text = "Yearly Total Songs Released by Genre") %>%
+  hc_xAxis(title = list(text = "Year")) %>%
+  hc_yAxis(title = list(text = "Total Songs Released")) %>%
+  hc_tooltip(valueDecimals = 0)
+
+# Create a stacked bar chart across time of the count songs for each genre
+hchart(songs_yearly_count_df, "column", hcaes(x = year, y = total_songs_released, group = genre), stacking = "normal") %>%
+  hc_title(text = "Yearly Total Songs Released by Genre") %>%
+  hc_xAxis(title = list(text = "Year")) %>%
+  hc_yAxis(title = list(text = "Total Songs Released")) %>%
+  hc_tooltip(valueDecimals = 0)
+
+# Calculate count of songs released by band in across all time 
+songs_band_count_df <- cleaned_songs_df %>%  
+  group_by(band_id) %>%
+  summarise(total_songs_released = n()) %>%  
+  arrange(desc(total_songs_released))
+
+# Plot distribution of frequency on number of songs released at band level 
+ggplot(songs_band_count_df, aes(x = total_songs_released)) +
+  geom_histogram(binwidth = 1, fill = "blue", alpha = 0.5) +
+  ggtitle("Distribution of Frequency of Number of Songs Released by Band") +
+  theme_minimal()
+
+# Calculate total count of unique bands
+unique_bands_count <- cleaned_songs_df %>% 
+  summarize(unique_bands = n_distinct(band_id))
+
+# Check if each band only produces the same genre of songs
+band_genre_count <- cleaned_songs_df %>% 
+  group_by(band_id) %>% 
+  summarize(unique_genres = n_distinct(genre)) %>% 
+  filter(unique_genres > 1)
+```
+
+#### 3.2 Investigate temporal patterns across total songs and songs released at quarterly and yearly frequency
+
+-   Total songs released and total copies_sold are highly correlated at the quarterly frequency at \~0.95%.
+
+-   The `copies_sold` variable shows an more pronounced downward trend than total songs released. This is suggestive that it represents the cumulative units sold since each song's launch date. We assume that copies_sold is a cumulative sum of the copies sold since the release of the song.
+
+-   Folktronica genre is appears to be dominating the market share in terms of `copies_sold` aligning with our results above.
+
+```{r}
+# Plot time series of total songs sold and songs released at the quarterly frequency
+songs_quarterly_series_df <- cleaned_songs_df %>%
   mutate(year_quarter = paste0(year(date), "-Q", quarter(date))) %>%
   group_by(year_quarter) %>%
-  summarize(total_songs_sold = sum(copies_sold))
+  summarize(total_songs_sold = sum(copies_sold),
+            total_songs_released = n())
 
+# Plot time series of total songs sold and released at the quarterly frequency
 hchart(songs_quarterly_series_df, "line", hcaes(x = year_quarter, y = total_songs_sold)) %>%
-  hc_title(text = "Quarterly Total Songs Sold Over Time") %>%
+  hc_title(text = "Quarterly Total Songs Sold and Released Over Time") %>%
   hc_xAxis(title = list(text = "Year-Quarter")) %>%
-  hc_yAxis(title = list(text = "Total Songs Sold")) %>%
-  hc_tooltip(valueDecimals = 0)
+  hc_yAxis_multiples(
+    list(title = list(text = "Total Songs Sold")),
+    list(title = list(text = "Total Songs Released"), opposite = TRUE)
+  ) %>%
+  hc_add_series(songs_quarterly_series_df$total_songs_released, name = "Total Songs Released", type = "line", yAxis = 1)
+
+# Calculate correlation between total songs sold and total songs released at qtrly frequency 
+print(cor(songs_quarterly_series_df$total_songs_sold, songs_quarterly_series_df$total_songs_released))
 
 # Plot time series of total songs sold at the yearly frequency
 songs_yearly_series_df <-cleaned_songs_df %>%
   mutate(year = format(date, "%Y")) %>%
   group_by(year) %>%
-  summarize(total_songs_sold = sum(copies_sold))
-
+  summarize(total_songs_sold = sum(copies_sold),
+             total_songs_released = n())
+            
 # Create the highcharter plot object
 hchart(songs_yearly_series_df, "line", hcaes(x = year, y = total_songs_sold)) %>%
   hc_title(text = "Yearly Total Songs Sold Over Time") %>%
   hc_xAxis(title = list(text = "Year")) %>%
-  hc_yAxis(title = list(text = "Total Songs Sold")) %>%
-  hc_tooltip(valueDecimals = 0)
+  hc_yAxis_multiples(
+    list(title = list(text = "Total Songs Sold")),
+    list(title = list(text = "Total Songs Released"), opposite = TRUE)
+  ) %>%
+  hc_add_series(songs_yearly_series_df$total_songs_released, name = "Total Songs Released", type = "line", yAxis = 1)
 
 # Plot time series of total songs sold by genre at the quarterly frequency
 songs_genre_quarterly_series_df <- cleaned_songs_df %>%
@@ -151,11 +276,11 @@ hchart(songs_genre_quarterly_series_df, "line", hcaes(x = year_quarter, y = tota
   hc_legend(title = list(text = "Genre"))
 ```
 
-#### 2.2 Investigate temporal patterns - Observe if there is seasonality present at weekly, monthly and quarterly frequency
+#### 3.3 Investigate whether seasonality exists at the weekly, monthly or quarterly level for our target
 
-**Objective:** To see whether it is important include seasonal dummies for the models, we plot the seasonal plots of copies_sold at each frequency.
+**Objective:** To determine the importance of including seasonal dummy variables in the models, we create seasonal plots of `copies_sold` at different frequencies.
 
-**Findings:** There appears to no strong visual evidence of seasonality, note that there is a dip in week *53* because there are relatively less rows in week 53.
+**Findings:** The seasonal plots do not provide strong visual evidence of seasonality in the copies_sold variable. It is worth noting that there is a dip in week 53, which can be attributed to the relatively fewer number of rows corresponding to that week.
 
 ```{r}
 # Plot the seasonal plots at the weekly, monthly and quarterly level for all the years 
@@ -197,7 +322,7 @@ for (freq in frequencies) {
 
 ```
 
-#### 2.2 Investigate temporal patterns - Plot the total loudness, energy and length at the quarterly level
+#### 3.3 Check for temporal patterns across the continuous features
 
 Findings:
 
@@ -205,7 +330,7 @@ Findings:
 
 -   All series exhibit a uptick at towards the end of the time series
 
--   There is high correlation amongst the features
+-   There is high correlation among the features at every frequency.
 
 ```{r}
 # Aggreate target and features at each frequency and plot 
@@ -266,74 +391,22 @@ for (freq in names(features_list)) {
 }
 ```
 
-#### 2.3 EDA: Perform different counts on the data relating to target
+#### 3.4 Check the stability of the variable's distributions across time
 
-We perform the following counts:
-
--   **Check**: Number of songs that sold above 2 million and the count to see if there is class imbalance.
-    -   **Findings:** As the proportion of songs sold above 2 million only covers \~6% of the data, recommend using regression approach.
--   **Check**: Total count of songs released in each year in aggregate and by genre.
-    -   **Findings:**
-        -   Aggregate songs released in year is overall decreasing
-        -   Folktronica features releases the most songs by year consistent with the amount of copies sold
--   **Check**: Total count of songs released by band in across all time to see if there are any data anomalies and whether it's feasible to train a model at the band level
-    -   **Findings:** There are 1390 unique bands and 7970 observations, where most bands have released less than 5 songs. Insufficient degrees of freedom to estimate a statistical model, pivot to *genre* level.
+-   To determine if the distributions of the continuous features are stable across the years, we generate violin of the continuous features for each year.
+-   The distributions of all features appear stable over time, with little evidence of non-stationarity, which could potentially pose challenges during the modeling process.
 
 ```{r}
-# Calculate the proportion of song that  sold above 2 million 
-proportion_songs_above_2m <-cleaned_songs_df %>% 
-  summarize(proportion_songs_above_2m = sum(copies_sold >= 2) / nrow(.))
+variables <- c("copies_sold","length","energy","loudness") 
 
-# Calculate total count of songs released in each year in aggregate by genre 
-songs_yearly_count_df <-cleaned_songs_df %>% 
-  mutate(year = year(date)) %>%
-  group_by(year, genre) %>%
-  summarize(total_songs_released = n())
-
-# Create a stacked bar chart across time of the count songs for each genre 
-hchart(songs_yearly_count_df, "column", hcaes(x = year, y = total_songs_released, group = genre)) %>%
-  hc_title(text = "Yearly Total Songs Released by Genre") %>%
-  hc_xAxis(title = list(text = "Year")) %>%
-  hc_yAxis(title = list(text = "Total Songs Released")) %>%
-  hc_tooltip(valueDecimals = 0)
-
-# Create a stacked bar chart across time of the count songs for each genre
-hchart(songs_yearly_count_df, "column", hcaes(x = year, y = total_songs_released, group = genre), stacking = "normal") %>%
-  hc_title(text = "Yearly Total Songs Released by Genre") %>%
-  hc_xAxis(title = list(text = "Year")) %>%
-  hc_yAxis(title = list(text = "Total Songs Released")) %>%
-  hc_tooltip(valueDecimals = 0)
-
-# Calculate count of songs released by band in across all time 
-songs_band_count_df <- cleaned_songs_df %>%  
-  group_by(band_id) %>%
-  summarise(total_songs_released = n()) %>%  
-  arrange(desc(total_songs_released))
-
-# Plot distribution of frequency on number of songs released at band level 
-ggplot(songs_band_count_df, aes(x = total_songs_released)) +
-  geom_histogram(binwidth = 1, fill = "blue", alpha = 0.5) +
-  ggtitle("Distribution of Frequency of Number of Songs Released by Band") +
-  theme_minimal()
-
-# Caclulate total count of unique bands
-unique_bands_count <- cleaned_songs_df %>% 
-  summarize(unique_bands = n_distinct(band_id))
-```
-
-#### 2.4 EDA: Plot distributions of each features across year
-
-Investigate if there are any temporal patterns/anomalies at the yearly levels. Findings: The distributions of the continuous features are relatively stable across the years.
-
-```{r}
 # Plot the smoothed distributions of the continuous features for each year 
-for (vars in variables) {
-  plot <- ggplot(cleaned_songs_df, aes(x = !!sym(vars), fill = as.factor(year(date)))) +
-    geom_density(alpha = 0.5) +
-    ggtitle(paste("Density plot of", vars)) +
-    theme_minimal()
-  print(plot)
-}
+# for (vars in variables) {
+#   plot <- ggplot(cleaned_songs_df, aes(x = !!sym(vars), fill = as.factor(year(date)))) +
+#     geom_density(alpha = 0.5) +
+#     ggtitle(paste("Density plot of", vars)) +
+#     theme_minimal()
+#   print(plot)
+# }
 
 # Plot the violin plots of each continuous feature for each year 
 for (vars in variables) {
@@ -349,43 +422,21 @@ for (vars in variables) {
 }
 ```
 
-#### 3.0 Feature engineering: Create new features
+#### 3.5 Investigate the relationship among the features and the target variable
 
-Before continuing eda, we build some new features
+**Check:** Investigate the correlation among features to understand feature importance.
 
-To build model to predict the number of copies sold, we create the following features:
+**Findings**:
 
--   Days since launch date of song
+1.  The correlation among features appears to be low at the song level but high when aggregated at the weekly level.
 
-```{r}
-# Assume record day is last day of data set 
-record_date = max(cleaned_songs_df$date)
+    -   For Model A, which focuses on individual songs, we need to model at the song level.
 
-# Create days since launch feature 
-cleaned_songs_df <- cleaned_songs_df %>% 
-  mutate(days_since_launch = as.integer(difftime(record_date, date, units = "days")))
+    -   For Model B, which focuses on song genres, if modeling at the weekly frequency consider regularization or removing a feature to account for high multicollinearity.
 
-# Append days_since_launch to variables vector 
-variables <- c(variables, "days_since_launch")
-aggregated_variables <-names(features_weekly_df)[2:5]
-  
-```
+2.  The 'length' feature exhibits low correlation with the target variable 'copies_sold' and other features at the song level.
 
-#### 3.1 EDA with new Features: Plot correlation and interaction of features with target variable
-
-**Check:** Investigate the correlation amongst features to understand feature importance.
-
-**Findings:**
-
--   There appears to be low correlation at the song level but high correlation at the weekly level.
-
--   For model A we need to model it on the song level
-
--   For model B when modelling for the genre of songs, consider modelling at weekly frequency
-
--   In particular length seems to have low correlation with the target variable, copies_sold and other features
-
--   There appears to be a negative relationship between copies sold and length and loudness at the song level and positive relationship at with energy.
+3.  There is a negative relationship between 'copies_sold' and 'length' and 'loudness' at the song level. However, 'energy' shows a positive relationship with 'copies_sold' at the song level.
 
 ```{r}
 # Calculate correlation matrix for continuous variables at different levels
@@ -432,9 +483,11 @@ for (i in seq_along(plot_vars)) {
 
 ```
 
-#### 3.2 Investigate to existence of interaction between features and target variable
+#### 3.6 Investigate to existence of interaction effects between features and target variable
 
-**Check:** Whether there is an interaction between `energy` and `loudness` with `length` to `copies_sold`. Rationale: A song that is high energy/loud that is long may cause fatigue in listeners reducing copies sold.
+**Check:** Whether there is an interaction `energy` and `loudness` with `length` to `copies_sold`. Rationale: A song that is high energy/loud that is long may cause fatigue in listeners reducing copies sold.
+
+The interaction plot provides visual evidence of interaction effect being present at energy and loudness. Considering testing interaction variables in a regression framework, or use a random forest regression to automatically capture interaction effects.
 
 **Findings:**
 
@@ -458,16 +511,50 @@ interaction.plot(x.factor = interaction_df$loudness_bin,
                  trace.label = "Length",
                  main = "Interaction Plot")
 
-# Create the interaction plot for energy and length 
+# Create the interaction plot for energy and length #
 interaction.plot(x.factor = interaction_df$energy_bin,
                  trace.factor = as.factor(interaction_df$length_bin),
                 response = interaction_df$copies_sold,
                  fun = mean,
                  type = "b",
-                 xlab = "Loudness",
+                 xlab = "Energy",
                  col = c("blue", "red", "green", "purple"),
                  ylab = "Copies_sold",
                  legend = TRUE,
                  trace.label = "Length",
                  main = "Interaction Plot")
+```
+
+### 4.0 Feature engineering
+
+We build the data set for models by creating the following features to experiment with
+
+-   `log_y`: Log transformation of the target variable `copies_sold` given it's log-normal distribution
+-   `days_since_release`: Day since release date of song
+-   One hot encoding of the genre column
+-   `interacion_loudness_length`: Interaction between energy and loudness
+-   `interaction_energy_length`: Interaction between energy and length
+-   `trend`: A trend variable corresponding to the days since start of data set
+
+```{r}
+# Assume record day of the data set
+  record_date <- as.Date('2023-01-01')
+
+# Create input data frame to experiment for model building 
+model_input_df<- cleaned_songs_df %>%
+  mutate(date = as.Date(date),
+         days_since_release = as.integer(difftime(record_date, date, units = "days"))) %>%
+  # Create day trend variable
+  mutate(trend = as.integer(difftime(date, min(date), units = "days"))) %>% 
+  # Create one hot encoding for the genre column
+  mutate(value = 1) %>%
+  pivot_wider(names_from = genre, values_from = value, values_fill = 0) %>%
+  # Create interaction features
+  mutate(interaction_loudness_length = loudness * length,
+         interaction_energy_length = energy * length) %>%
+  # Create log transformation of the target variable
+  mutate(log_copies_sold = log(copies_sold)) 
+
+model_input_df
+  
 ```
