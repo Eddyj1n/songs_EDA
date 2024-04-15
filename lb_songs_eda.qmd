@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-#### 0.1 Import data  and load required packages 
+#### 0.1 Import data and load required packages
 
 ```{r}
 # Install pacman if not already installed
@@ -14,7 +14,9 @@ if (!require("pacman")) install.packages("pacman")
 rm(list=ls())
 
 # Load the required packages using pacman
-pacman::p_load(dplyr, ggplot2, psych, ggcorrplot, highcharter, lubridate, plotly,ggpubr)
+pacman::p_load(dplyr,
+               #plot packaes 
+               ggplot2, psych, ggcorrplot, highcharter,plotly,ggpubr,viridis)
 
 # Read in data set and parse date column as date objects 
 songs_df <- read.csv("data/lifeblood_interview_dataset.csv") %>%  
@@ -166,15 +168,19 @@ for (freq in frequencies) {
   # Aggregate data at the current frequency
   aggregated_data <- songs_time_index_df %>%
     group_by(year, !!sym(col_name)) %>%
-    summarize(total_copies_sold = sum(copies_sold))
+    summarize(total_copies_sold = round(sum(copies_sold)))
+
   
   # Generate plot for the current frequency
-  plot <- ggplot(aggregated_data, aes(x = !!sym(col_name), y = total_copies_sold, group = year, color = factor(year))) +
-    geom_line() +
-    labs(x = toupper(freq), y = "Total Copies Sold", title = paste(toupper(freq), "Copies Sold by Year")) +
-    scale_color_discrete(name = "Year") +
-    scale_x_continuous(breaks = seq(min(aggregated_data[[col_name]]), max(aggregated_data[[col_name]]), by = 2)) +
-    theme_minimal()
+  plot <- hchart(aggregated_data, "line", hcaes(x = !!sym(col_name), y =  total_copies_sold, group = year)) %>%
+    hc_colors(colors = viridis(length(unique(aggregated_data$year)))) %>%
+    hc_title(text = paste(toupper(freq), "Copies Sold by Year")) %>%
+    hc_xAxis(title = list(text = toupper(freq)),
+             labels = list(step = 2)) %>%
+    hc_yAxis(title = list(text = "Total Copies Sold")) %>%
+    hc_legend(title = list(text = "Year")) %>%
+    hc_tooltip(crosshairs = TRUE, shared = TRUE) %>%
+    hc_exporting(enabled = TRUE)
   
   # Print the plot
   print(plot)
@@ -182,29 +188,73 @@ for (freq in frequencies) {
 
 ```
 
-#### 2.2 Investigate temporal patterns - Plot Aggregate average loudness and sound length across time
+#### 2.2 Investigate temporal patterns - Plot the total loudness, energy and length at the quarterly level
+
+Findings:
+
+-   All series appears to be quite stable across time where `total_energy`, `total_loudness` exhibit a slight downward trend.
+
+-   All series exhibit a uptick at towards the end of the time series
+
+-   There is high correlation amongst the features
 
 ```{r}
-# Plot time series at the weekly frequency
-songs_weekly_series_df <-cleaned_songs_df %>%
-  mutate(date = as.Date(date)) %>%
-  #mutate(year_week = format(date, "%Y-%W")) %>%
-  #group_by(year_week) %>%
-  mutate(year_quarter = paste0(year(date), "-Q", quarter(date))) %>%
-  group_by(year_quarter) %>%
-  summarize(mean_loudness = mean(loudness),
-            mean_energy = mean(energy),
-            mean_length = mean(length)) %>%
-  arrange(year_quarter)
+# Aggreate target and features at each frequency and plot 
+# Create time series df at the monthly frequency
+features_weekly_df <- cleaned_songs_df %>%
+  mutate(date = format(date, "%Y-%W")) %>%
+  group_by(date) %>%
+  summarize(total_copies_sold = sum(copies_sold),
+            total_loudness = sum(loudness),
+            total_energy = sum(energy),
+            total_length = sum(length)) %>%
+  arrange(date) 
 
-# Plot mean_loudness, mean_energy and mean_length over time
-hchart(songs_weekly_series_df, "line", hcaes(x = year_quarter, y = mean_loudness)) %>%
-  hc_add_series(songs_weekly_series_df, "line", hcaes(x = year_quarter, y = mean_energy)) %>%
-  #hc_add_series(songs_weekly_series_df, "line", hcaes(x = year_quarter, y = mean_length)) %>%
-  hc_title(text = "Weekly Mean Loudness, Energy and Length Over Time") %>%
-  hc_xAxis(title = list(text = "Year-Week")) %>%
-  hc_yAxis(title = list(text = "Mean Loudness, Energy, Length")) %>%
-  hc_tooltip(valueDecimals = 0)
+# Create time series df at the monthly frequency
+features_monthly_df <- cleaned_songs_df %>%
+  mutate(date = format(date, "%Y-%m")) %>%
+  group_by(date) %>%
+  summarize(total_copies_sold = sum(copies_sold),
+            total_loudness = sum(loudness),
+            total_energy = sum(energy),
+            total_length = sum(length)) %>%
+  arrange(date) 
+
+# Create time series df at the quarterly frequency
+features_quarterly_df <-cleaned_songs_df %>%
+  mutate(date = paste0(year(date), "-Q", quarter(date))) %>%
+  group_by(date) %>%
+    summarize(total_copies_sold = sum(copies_sold),
+            total_loudness = sum(loudness),
+            total_energy = sum(energy),
+            total_length = sum(length)) %>%
+  arrange(date)
+
+# Create a list to store the dataframes
+features_list <- list(
+  weekly = features_weekly_df,
+  monthly = features_monthly_df,
+  quarterly = features_quarterly_df
+)
+
+# Loop through the frequencies and create the plots
+for (freq in names(features_list)) {
+  features_df <- features_list[[freq]]  # Corrected variable name
+  
+  plot <- hchart(features_df, "line", hcaes(x = date, y = total_loudness), name = "Total Loudness") %>%
+    hc_add_series(features_df, "line", hcaes(x = date, y = total_energy), name = "Total Energy") %>%
+    hc_add_series(features_df, "line", hcaes(x = date, y = total_length), yAxis = 1, name = "Total Length") %>%
+    hc_add_series(features_df, "line", hcaes(x = date, y = 10*total_copies_sold), yAxis = 1, name = "Total Copies Sold") %>%
+    hc_title(text = paste("Features and target", freq)) %>%
+    hc_xAxis(title = list(text = "Date")) %>%
+    hc_yAxis_multiples(list(title = list(text = "Loudness/Energy"),
+                            opposite = FALSE),
+                       list(title = list(text = "Length/Copies Sold"),
+                            opposite = TRUE)) %>%
+    hc_tooltip(valueDecimals = 0)
+  
+  print(plot)
+}
 ```
 
 #### 2.3 EDA: Perform different counts on the data relating to target
@@ -302,24 +352,58 @@ To build model to predict the number of copies sold, we create the following fea
 # Assume record day is last day of data set 
 record_date = max(cleaned_songs_df$date)
 
-# Build the data set input for model A 
-model_a_features_df <- cleaned_songs_df %>% 
+# Create days since launch feature 
+cleaned_songs_df <- cleaned_songs_df %>% 
   mutate(days_since_launch = as.integer(difftime(record_date, date, units = "days")))
+
+# Append days_since_launch to variables vector 
+variables <- c(variables, "days_since_launch")
+aggregated_variables <-names(features_weekly_df)[2:5]
   
 ```
 
 #### 2.5 EDA: Plot correlation and interaction of features with target variable
 
-Investigate the correlation amongst features and target to check for possibility of multicollinearity.
+**Check:** Investigate the correlation amongst features to understand feature importance.
 
-Length seems to have low correlation with the target variable, copies_sold and other features
+**Findings:**
+
+-   There appears to be low correlation at the song level but high correlation at the weekly level.
+
+-   For model A we need to model it on the song level
+
+-   For model B when modelling for the genre of songs, consider modelling at weekly frequency
+
+```{=html}
+<!-- -->
+```
+-   In particular length seems to have low correlation with the target variable, copies_sold and other features
 
 ```{r}
- # Calculate correlation matrix for continuous variables
-correlation_matrix <- cor(cleaned_songs_df %>% select(all_of(variables)), use = "pairwise.complete.obs")
+# Calculate correlation matrix for continuous variables at different levels
+# Correlation matrix at the song level 
+correlation_matrix_song_level <- cor(cleaned_songs_df %>% select(all_of(variables)))
 
-# Plot correlation matrix
-ggcorrplot(correlation_matrix, hc.order = TRUE, type = "upper",lab = TRUE)
+# Correlation matrix at the weekly level
+correlation_matrix_weekly <- cor(features_weekly_df %>%  select(all_of(aggregated_variables)))
+
+# Plot correlation matrices 
+ggcorrplot(correlation_matrix_song_level, hc.order = TRUE, type = "upper",lab = TRUE)
+ggcorrplot(correlation_matrix_weekly, hc.order = TRUE, type = "upper",lab = TRUE)
+
+# Plot a scatter plot 
+cleaned_songs_df %>%  
+  gg
+
+
+
+
+
+# Plot an interaction plot 
+
+
+
+
 
 # Plot scatter plot and marginal distribution of target against continuous features 
 for (vars in variables) {
