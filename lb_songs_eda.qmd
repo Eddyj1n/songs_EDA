@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-#### 0.1 Import data
+#### 0.1 Import data  and load required packages 
 
 ```{r}
 # Install pacman if not already installed
@@ -94,36 +94,11 @@ describe(cleaned_songs_df %>% select(all_of(variables))) %>%
   select(mean, median, min, max, range, sd)
 ```
 
-#### 2.1 Exploratory data analysis: Investigate temporal patterns across total songs I
+#### 2.1 Exploratory data analysis: Investigate temporal patterns across total songs at quarterly and yearly frequency to motivate what temporal features to include
 
 A key observation there is a overall downward trend in the total amount of copies sold. This suggests `copies_sold` reflect the units sold since launch date of song. From here we assume the `copies_sold` variable is a cumulative sum of the copies sold since the launch date of the song.
 
 ```{r}
-# # Plot time series of total songs sold at the weekly frequency
-# songs_weekly_series_df <-cleaned_songs_df %>%
-#   mutate(year_week = format(date, "%Y-%W")) %>%
-#   group_by(year_week) %>%
-#   summarize(total_songs_sold = sum(copies_sold)) %>% 
-#   arrange(year_week)
-# 
-# hchart(songs_weekly_series_df, "line", hcaes(x = year_week, y = total_songs_sold)) %>%
-#   hc_title(text = "Weekly Total Songs Sold Over Time") %>%
-#   hc_xAxis(title = list(text = "Year-Week")) %>%
-#   hc_yAxis(title = list(text = "Total Songs Sold")) %>%
-#   hc_tooltip(valueDecimals = 0)
-
-# # Plot time series of total songs sold at the monthly frequency
-# songs_monthly_series_df <-cleaned_songs_df %>%
-#   mutate(year_month = format(date, "%m-%Y")) %>%
-#   group_by(year_month) %>%
-#   summarize(total_songs_sold = sum(copies_sold))
-# 
-# hchart(songs_monthly_series_df, "line", hcaes(x = year_month, y = total_songs_sold)) %>%
-#   hc_title(text = "Monthly Total Songs Sold Over Time") %>%
-#   hc_xAxis(title = list(text = "Year-Month")) %>%
-#   hc_yAxis(title = list(text = "Total Songs Sold")) %>%
-#   hc_tooltip(valueDecimals = 0)
-
 # Plot time series of total songs sold at the quarterly frequency
 songs_quarterly_series_df <-cleaned_songs_df %>%
   mutate(year_quarter = paste0(year(date), "-Q", quarter(date))) %>%
@@ -142,6 +117,7 @@ songs_yearly_series_df <-cleaned_songs_df %>%
   group_by(year) %>%
   summarize(total_songs_sold = sum(copies_sold))
 
+# Create the highcharter plot object
 hchart(songs_yearly_series_df, "line", hcaes(x = year, y = total_songs_sold)) %>%
   hc_title(text = "Yearly Total Songs Sold Over Time") %>%
   hc_xAxis(title = list(text = "Year")) %>%
@@ -163,6 +139,48 @@ hchart(songs_genre_quarterly_series_df, "line", hcaes(x = year_quarter, y = tota
   hc_legend(title = list(text = "Genre"))
 ```
 
+#### 2.2 Investigate temporal patterns - Observe if there is seasonality present at weekly, monthly and quarterly frequency
+
+**Objective:** To see whether it is important include seasonal dummies for the models, we plot the seasonal plots of copies_sold at each frequency.
+
+**Findings:** There appears to no strong visual evidence of seasonality, note that there is a dip in week *53* because there are relatively less rows in week 53.
+
+```{r}
+# Plot the seasonal plots at the weekly, monthly and quarterly level for all the years 
+
+# Add columns for week, quarter, month and year 
+songs_time_index_df <- cleaned_songs_df %>%  
+  mutate(year = year(date), 
+         quarter = quarter(date),
+         month = month(date),
+         week = week(date))
+
+# Define the frequencies and their corresponding columns
+frequencies <- c("week", "month", "quarter")
+frequency_cols <- list(week = "week", month = "month", quarter = "quarter")
+
+# Loop through each frequency and generate plots
+for (freq in frequencies) {
+  col_name <- frequency_cols[[freq]]
+  
+  # Aggregate data at the current frequency
+  aggregated_data <- songs_time_index_df %>%
+    group_by(year, !!sym(col_name)) %>%
+    summarize(total_copies_sold = sum(copies_sold))
+  
+  # Generate plot for the current frequency
+  plot <- ggplot(aggregated_data, aes(x = !!sym(col_name), y = total_copies_sold, group = year, color = factor(year))) +
+    geom_line() +
+    labs(x = toupper(freq), y = "Total Copies Sold", title = paste(toupper(freq), "Copies Sold by Year")) +
+    scale_color_discrete(name = "Year") +
+    scale_x_continuous(breaks = seq(min(aggregated_data[[col_name]]), max(aggregated_data[[col_name]]), by = 2)) +
+    theme_minimal()
+  
+  # Print the plot
+  print(plot)
+}
+
+```
 
 #### 2.2 Investigate temporal patterns - Plot Aggregate average loudness and sound length across time
 
@@ -189,17 +207,18 @@ hchart(songs_weekly_series_df, "line", hcaes(x = year_quarter, y = mean_loudness
   hc_tooltip(valueDecimals = 0)
 ```
 
-#### 2.3 EDA: Perform different counts on the data relating to target 
+#### 2.3 EDA: Perform different counts on the data relating to target
 
 We perform the following counts:
 
-- Number of songs that sold above 2 million and the count to see if there is class imbalance. 
- Findings:  As the proportion of songs sold above 2 million only covers 6% of the data, recommend using regression approach. 
-- Total count of songs released in each year in aggregate and by genre. 
- Findings:  Folktronica features releases the most songs by year consistent with the amount of copies sold 
-- Total count of songs released by band in across all time to see if there are any data anomalies 
-- Total count of unique bands to see if it's feasible to train a model at the band level
-  Findings: There are 1390 unique bands and 7970 observations, where most bands have released less than 5 songs. Insufficient degrees of freedom to estimate a statisical model, pivot to genre level. 
+-   **Check**: Number of songs that sold above 2 million and the count to see if there is class imbalance.
+    -   **Findings:** As the proportion of songs sold above 2 million only covers \~6% of the data, recommend using regression approach.
+-   **Check**: Total count of songs released in each year in aggregate and by genre.
+    -   **Findings:**
+        -   Aggregate songs released in year is overall decreasing
+        -   Folktronica features releases the most songs by year consistent with the amount of copies sold
+-   **Check**: Total count of songs released by band in across all time to see if there are any data anomalies and whether it's feasible to train a model at the band level
+    -   **Findings:** There are 1390 unique bands and 7970 observations, where most bands have released less than 5 songs. Insufficient degrees of freedom to estimate a statistical model, pivot to *genre* level.
 
 ```{r}
 # Calculate the proportion of song that  sold above 2 million 
@@ -243,10 +262,9 @@ unique_bands_count <- cleaned_songs_df %>%
   summarize(unique_bands = n_distinct(band_id))
 ```
 
-#### 2.4 EDA: Plot distributions of each features across year 
+#### 2.4 EDA: Plot distributions of each features across year
 
-Investigate if there are any temporal patterns/anomalies at the yearly levels.
-Findings: The distributions of the continuous features are relatively stable across the years.
+Investigate if there are any temporal patterns/anomalies at the yearly levels. Findings: The distributions of the continuous features are relatively stable across the years.
 
 ```{r}
 # Plot the smoothed distributions of the continuous features for each year 
@@ -272,34 +290,38 @@ for (vars in variables) {
 }
 ```
 
+#### 3.0 Feature engineering: Create new features
+
+Before continuing eda, we build some new features
+
+To build model to predict the number of copies sold, we create the following features:
+
+-   Days since launch date of song
+
+```{r}
+# Assume record day is last day of data set 
+record_date = max(cleaned_songs_df$date)
+
+# Build the data set input for model A 
+model_a_features_df <- cleaned_songs_df %>% 
+  mutate(days_since_launch = as.integer(difftime(record_date, date, units = "days")))
+  
+```
+
 #### 2.5 EDA: Plot correlation and interaction of features with target variable
 
 Investigate the correlation amongst features and target to check for possibility of multicollinearity.
 
-Length seems to have low correlation with the target variable, copies_sold and other features 
+Length seems to have low correlation with the target variable, copies_sold and other features
 
 ```{r}
-
-library(ggExtra)
  # Calculate correlation matrix for continuous variables
 correlation_matrix <- cor(cleaned_songs_df %>% select(all_of(variables)), use = "pairwise.complete.obs")
 
 # Plot correlation matrix
 ggcorrplot(correlation_matrix, hc.order = TRUE, type = "upper",lab = TRUE)
 
-# Plot scatterplot and marginal distribtuion of target against continuous features using ggpubr 
-for (vars in variables) {
-  plot <- ggplot(cleaned_songs_df, aes(x = !!sym(vars), y = copies_sold, color = factor(genre))) +
-    geom_point(alpha = 0.6) +
-    scale_color_discrete(name = "Genre") +
-    theme_minimal() +
-    labs(x = vars, y = "Copies Sold", title = paste("Scatter Plot of", vars, "vs. Copies Sold"))
-  
-  plot_with_margin <- ggMarginal(plot, type = "density", fill = "lightblue", color = "lightblue")
-  
-  print(plot_with_margin)
-}
-
+# Plot scatter plot and marginal distribution of target against continuous features 
 for (vars in variables) {
   plot <- ggscatterhist(
     data = cleaned_songs_df,
@@ -308,18 +330,14 @@ for (vars in variables) {
     color = "genre",
     size = 3,
     alpha = 0.6,
-    # palette = c("#00AFBB", "#E7B800", "#FC4E07", "#007FFF", "#8B008B", "#228B22", "#FF69B4", "#CD5C5C", "#FFD700", "#6495ED"),
+     palette = c("#00AFBB", "#E7B800", "#FC4E07", "#007FFF", "#8B008B", "#228B22", "#FF69B4", "#CD5C5C", "#FFD700", "#6495ED"),
     margin.params = list(fill = "genre", color = "black", size = 0.2),
     ggtheme = theme_minimal(),
     xlab = vars,
     ylab = "Copies Sold",
     title = paste("Scatter Plot of", vars, "vs. Copies Sold")
   )
-  
   print(plot)
 }
 
 ```
-
-
-
