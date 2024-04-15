@@ -14,8 +14,8 @@ if (!require("pacman")) install.packages("pacman")
 rm(list=ls())
 
 # Load the required packages using pacman
-pacman::p_load(dplyr,
-               #plot packaes 
+pacman::p_load(tidyverse,
+               #plot packages
                ggplot2, psych, ggcorrplot, highcharter,plotly,ggpubr,viridis)
 
 # Read in data set and parse date column as date objects 
@@ -170,7 +170,6 @@ for (freq in frequencies) {
     group_by(year, !!sym(col_name)) %>%
     summarize(total_copies_sold = round(sum(copies_sold)))
 
-  
   # Generate plot for the current frequency
   plot <- hchart(aggregated_data, "line", hcaes(x = !!sym(col_name), y =  total_copies_sold, group = year)) %>%
     hc_colors(colors = viridis(length(unique(aggregated_data$year)))) %>%
@@ -374,9 +373,6 @@ aggregated_variables <-names(features_weekly_df)[2:5]
 
 -   For model B when modelling for the genre of songs, consider modelling at weekly frequency
 
-```{=html}
-<!-- -->
-```
 -   In particular length seems to have low correlation with the target variable, copies_sold and other features
 
 ```{r}
@@ -391,37 +387,33 @@ correlation_matrix_weekly <- cor(features_weekly_df %>%  select(all_of(aggregate
 ggcorrplot(correlation_matrix_song_level, hc.order = TRUE, type = "upper",lab = TRUE)
 ggcorrplot(correlation_matrix_weekly, hc.order = TRUE, type = "upper",lab = TRUE)
 
-# Plot a scatter plot 
-cleaned_songs_df %>%  
-  gg
+# Plot a scatter plot of energy vs. copies sold
+ggplot(data = cleaned_songs_df %>% sample_n(1000),
+                       aes(x = energy, y = copies_sold, color = genre, size = days_since_launch)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "loess", formula = y ~ x, color = "black", size = 1) +
+  scale_color_viridis(discrete = TRUE) +
+  labs(x = "energy", y = "Copies Sold", title = "Scatter Plot of Energy vs. Copies Sold") +
+  theme_minimal() 
 
 
+# Plot a scatter plot of length vs. copies sold
+ggplot(data = cleaned_songs_df %>% sample_n(1000),
+                       aes(x = length, y = copies_sold, color = genre, size = days_since_launch)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", formula = y ~ x, color = "black", size = 1) +
+  scale_color_viridis(discrete = TRUE) +
+  labs(x = "length", y = "Copies Sold", title = "Scatter Plot of Energy vs. Copies Sold") +
+  theme_minimal() 
 
+# Plot a scatter plot of loudness vs. copies sold
+ggplot(data = cleaned_songs_df %>% sample_n(1000),
+                       aes(x = loudness, y = copies_sold, color = genre, size = days_since_launch)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "lm", formula = y ~ x, color = "black", size = 1) +
+  scale_color_viridis(discrete = TRUE) +
+  labs(x = "loudness", y = "Copies Sold", title = "Scatter Plot of Energy vs. Copies Sold") +
+  theme_minimal() 
 
-
-# Plot an interaction plot 
-
-
-
-
-
-# Plot scatter plot and marginal distribution of target against continuous features 
-for (vars in variables) {
-  plot <- ggscatterhist(
-    data = cleaned_songs_df,
-    x = vars,
-    y = "copies_sold",
-    color = "genre",
-    size = 3,
-    alpha = 0.6,
-     palette = c("#00AFBB", "#E7B800", "#FC4E07", "#007FFF", "#8B008B", "#228B22", "#FF69B4", "#CD5C5C", "#FFD700", "#6495ED"),
-    margin.params = list(fill = "genre", color = "black", size = 0.2),
-    ggtheme = theme_minimal(),
-    xlab = vars,
-    ylab = "Copies Sold",
-    title = paste("Scatter Plot of", vars, "vs. Copies Sold")
-  )
-  print(plot)
-}
 
 ```
