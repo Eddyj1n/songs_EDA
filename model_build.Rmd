@@ -13,7 +13,7 @@ pacman::p_load(tidyverse,tidymodels)
 rm(list=ls())
 
 # Read in data set and parse date column as date objects 
-  df <- read.csv("data/lifeblood_interview_dataset.csv") %>%  
+  df <- read.csv("data/dataset.csv") %>%  
   mutate(date = as.Date(date)) %>%  
   distinct() %>%  
   filter(!is.na(energy)) %>%
